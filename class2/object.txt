@@ -24,3 +24,5 @@ function defineReactive(data, key, val) {
         },
     })
 }
+
+## 如何收集依赖
