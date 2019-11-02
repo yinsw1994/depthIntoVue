@@ -26,3 +26,10 @@ function defineReactive(data, key, val) {
 }
 
 ## 如何收集依赖
+
+总结：在getter中收集依赖，在setter中触发依赖
+
+## 依赖收集在哪里
+
+我们将每一个属性所有的依赖存放到一个数组dep中, 每一个依赖都是一个函数
+
