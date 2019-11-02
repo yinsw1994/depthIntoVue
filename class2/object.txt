@@ -1,0 +1,26 @@
+# Object 的变化侦测
+
+vue.js 的 变化侦测属于'推'，当状态发生变化的时候，向这个状态的所有依赖发送通知，让他们进行DOM更新操作。
+
+而每个状态的依赖绑定越多，依赖追踪在内存中的开销也就越大。因此，引入了虚拟DOM， 将粒度调整为中等粒度，将状态绑定的依赖由DOM节点调整
+为组件，状态变化后，组件再通过虚拟DOM进行对比，从而降低内存消耗。
+
+## 如何追踪变化
+
+Object.defineProperty 和 ES6 的 Proxy
+
+function defineReactive(data, key, val) {
+    Object.defineProperty(data, key, {
+        enumerable: true,
+        configurable: true,
+        get: function() {
+            return val;
+        },
+        set: function() {
+           if (val === newVal) {
+                return
+           }
+           val = newVal;
+        },
+    })
+}
