@@ -1,0 +1,345 @@
+# Array 的变化侦测
+
+Array 的侦测方式不同于 Object, 因为数组自身的变化, 并不会触发 getter/setter.
+
+## 如何追踪变化
+
+使用拦截器覆盖 Array.prototype , 每当执行 Array 中的方法, 实际上是执行拦截器提供的方法
+
+## 拦截器
+
+改变数组自身内容的方法有7个, push pop shift unshift splice sort reverse
+
+const arrayProto = Array.prototype;
+export const arrayMethods = Object.create(arrayProto);
+
+[
+    'push',
+    'pop',
+    'shift',
+    'unshift',
+    'splice',
+    'sort',
+    'reverse'
+].forEach(function (method) {
+    // 缓存原始方法
+    const original = arrayProto[method];
+    Object.defineProperty(arrayMethods, method, {
+        value: function mutator (...args) {
+            return original.apply(this, args);
+        },
+        enumerable: false,
+        writable: true,
+        configurable: true
+    })
+})
+
+## 拦截器如何覆盖 Array 原型
+
+可以使用 _proto_ 和 ES6 中的 Object.setPrototypeOf
+
+export class Observer {
+    constructor (value) {
+        this.value = value;
+
+        if (Array.isArray(value)) {
+            // 直接修改原型链指向, 覆盖 Array 原型
+            value._proto_ = arrayMethods;
+        } else {
+            this.walk(value);
+        }
+    }
+}
+
+## 暴力覆盖: 将拦截器方法挂载到数组的属性上
+
+当浏览器不支持 _proto_ 这种模式, 可以使用暴力挂载
+
+import { arrayMethods } from './array'
+
+// _proto_ 是否可用
+const hasProto = '_proto_' in {}
+const arrayKeys = Object.getOwnPropertyNames(arrayMethods);
+
+export class Observer {
+    constructor (value) {
+        this.value = value;
+
+        if (Array.isArray(value)) {
+            // 修改
+            const augment = hasProto ? protoAugment : copyAugment;
+            augment(value, arrayMethods, arrayKeys);
+        } else {
+            this.walk(value);
+        }
+    }
+
+    ....
+}
+// 通过 _proto_ 覆盖
+function protoAugment (target, src, keys) {
+    target._proto_ = src;
+}
+
+// 暴力覆盖
+function copyAugment (target, src, keys) {
+    for (let i = 0; i = keys.length; i ++) {
+        const key = keys[i];
+        //  def 工具函数 => Object.defineProperty
+        def (target, key, src[key]);
+    }
+}
+
+## 如何收集依赖
+
+Object 是在 getter 中收集依赖, 实际上数组也是在 getter 中依赖, 例如: { list: [1, 2, 3] }, 读取 this.list 时, 通过 getter 收集依赖.
+
+Array 在 getter 中收集依赖, 在拦截器中触发依赖.
+
+function defineReactive (data, key, val) {
+    if (typeof val === 'object) new Observer(val);
+    let dep = new Dep();
+    Object.defineProperty(data, key, {
+        enumerable: true,
+        configurable: true,
+        get: function() {
+            dep.depend();
+            // 在这里收集 Array 的依赖
+            return val;
+        },
+        set: function(newVal) {
+            if (val === newVale) {
+                return
+            }
+
+            dep.notify();
+            val = newVal;
+        }
+    })
+}
+
+## 依赖列表存在哪儿
+
+一句话 Dep 存在 Observer 实例中, 因为这样 拦截器中才可以访问到。
+
+export class Observer {
+    constructor (value) {
+        this.value = value;
+        // 新增依赖存放
+        this.dep = new Dep();
+
+        if (Array.isArray(value)) {
+            // 修改
+            const augment = hasProto ? protoAugment : copyAugment;
+            augment(value, arrayMethods, arrayKeys);
+        } else {
+            this.walk(value);
+        }
+    }
+
+    ....
+}
+
+## 收集依赖
+
+function defineReactive (data, key, val) {
+    let childOb = observe(val); // 修改了此处
+    let dep = new Dep();
+    Object.defineProperty(data, key, {
+        enumerable: true,
+        configurable: true,
+        get: function() {
+            dep.depend();
+
+            // 新增
+            if (childOb) {
+                childOb.dep.depend();
+            }
+            return val;
+        },
+        set: function(newVal) {
+            if (val === newVale) {
+                return
+            }
+
+            dep.notify();
+            val = newVal;
+        }
+    })
+}
+
+/**
+ *  尝试为 value 创建一个 Observer 实例
+ *  如果创建成功, 直接返回新创建的 Observer 实例
+ *  如果 value 已经存在一个 Observer 实例, 则直接返回它
+ */
+export function observe (value, asRootData) {
+    if (!isObject(value)) return;
+    let ob;
+    if (hasOwn(value, '_ob_') && value._ob_ instanceof Observer) {
+        ob = vlaue._ob_;
+    } else {
+        ob = new Observer(value);
+    }
+    return ob;
+}
+
+## 在拦截器中获取 Observer 实例
+
+// 工具函数
+function def (obj, key, val, enumerable) {
+    Object,defineProperty(obj, key, {
+        value: val,
+        enumerable: !!enumerable,
+        writable: true,
+        configurable: true
+    })
+}
+
+export class Observer {
+    constructor (value) {
+        this.value = value;
+        this.dep = new Dep();
+        // 新增
+        def(value, '_ob_', this);
+
+        if (Array.isArray(value)) {
+            const augment = hasProto ? protoAugment : copyAugment;
+            augment(value, arrayMethods, arrayKeys);
+        } else {
+            this.walk(value);
+        }
+    }
+}
+
+;[
+    'push',
+    'pop',
+    'shift',
+    'unshift',
+    'splice',
+    'sort',
+    'reverse'
+].forEach(function (method) {
+    // 缓存原始方法
+    const original = arrayProto[method];
+    Object.defineProperty(arrayMethods, method, {
+        value: function mutator (...args) {
+            // 新增, 拦截器中获取 Observer 实例
+            const ob = this._ob_;
+            return original.apply(this, args);
+        },
+        enumerable: false,
+        writable: true,
+        configurable: true
+    })
+})
+
+## 向数组的依赖发送通知
+
+;[
+    'push',
+    'pop',
+    'shift',
+    'unshift',
+    'splice',
+    'sort',
+    'reverse'
+].forEach(function (method) {
+    // 缓存原始方法
+    const original = arrayProto[method];
+    Object.defineProperty(arrayMethods, method, {
+        value: function mutator (...args) {
+            const ob = this._ob_;
+            // 向依赖发送消息
+            ob.dep.notify();
+            return original.apply(this, args);
+        },
+        enumerable: false,
+        writable: true,
+        configurable: true
+    })
+})
+
+## 侦测数组中所有元素的变化
+
+数组每一个子项, 也有存在 Object 或者 Array, 所以每一项都要是这去创建 Observer 实例
+
+export class Observer {
+    constructor (value) {
+        this.value = value;
+        this.dep = new Dep();
+        def(value, '_ob_', this);
+
+        if (Array.isArray(value)) {
+            const augment = hasProto ? protoAugment : copyAugment;
+            augment(value, arrayMethods, arrayKeys);
+            // 新增
+            this.observeArray(value);
+        } else {
+            this.walk(value);
+        }
+    }
+
+    /**
+     *  侦测 Array 中的每一项
+     */
+    observeArray(items) {
+        for (let i = 0; l = items.length; i < l; i ++) {
+            observe(item[i]);
+        }
+    }
+
+    ...
+}
+
+## 侦测数组中新增元素的变化
+
+也就是获得新增元素, 然后给他们创建 Observer 实例
+
+;[
+    'push',
+    'pop',
+    'shift',
+    'unshift',
+    'splice',
+    'sort',
+    'reverse'
+].forEach(function (method) {
+    // 缓存原始方法
+    const original = arrayProto[method];
+    def (arrayMethods, method, function mutator (...args) {
+            const result = original.apply(this, args)
+            const ob = this._ob_;
+            //  获得新增元素
+            let inserted;
+            switch (method) {
+                case 'push':
+                case 'unshift':
+                    inserted = args;
+                    break;
+                case 'splice':
+                    inserted = args.slice(2);
+                    break;
+            }
+            // 使用 Observer 侦测新增元素
+            if (inserted) ob.observeArray(inserted)
+            ob.dep.notify();
+            return result;
+        })
+})
+
+## 关于 Array 的问题
+
+例如: this.list[0] = 2; this.list.length = 0; 这些方式是监测不到变化的
+
+## 总结
+
+1、使用拦截器覆盖 Array.prototye 上的改变数组自身的方法
+2、在 getter 中通过 observe 收集依赖
+3、存放依赖到 Observer 的实例中去
+4、在实例 Observer 中为每一个value 创建 _ob_ 属性, 挂载当前自身实例, 方便拦截器获取
+5、在拦截器中触发依赖 ob.dep.notify();
+6、为数组的每一项子元素创建 Observer 实例, 并为新增元素也创建 Observer 实例
+
+
