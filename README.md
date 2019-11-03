@@ -1,2 +1,2 @@
-# depthIntoVue
-vue 的一些笔记
+# vue 源码解读
+vue 源码学习记录,持续更新...
